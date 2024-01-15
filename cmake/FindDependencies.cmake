@@ -121,6 +121,7 @@ if(CUDA_ENABLED)
 endif()
 
 if(CUDA_ENABLED AND CUDA_FOUND)
+    set(CMAKE_CUDA_ARCHITECTURES native)
     if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
         message(
             FATAL_ERROR "You must set CMAKE_CUDA_ARCHITECTURES to e.g. 'native', 'all-major', '70', etc. "
