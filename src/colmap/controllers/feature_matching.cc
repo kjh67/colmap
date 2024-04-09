@@ -35,6 +35,7 @@
 #include "colmap/geometry/gps.h"
 #include "colmap/retrieval/visual_index.h"
 #include "colmap/util/misc.h"
+#include "colmap/util/timer.h"
 
 #include <fstream>
 #include <numeric>
@@ -123,7 +124,7 @@ void MatchNearestNeighborsInVisualIndex(const int num_threads,
     visual_index->Query(
         query_options, keypoints, descriptors, &retrieval.image_scores);
 
-    CHECK(retrieval_queue.Push(std::move(retrieval)));
+    THROW_CHECK(retrieval_queue.Push(std::move(retrieval)));
   };
 
   // Initially, make all retrieval threads busy and continue with the matching.
@@ -157,7 +158,7 @@ void MatchNearestNeighborsInVisualIndex(const int num_threads,
 
     // Pop the next results from the retrieval queue.
     auto retrieval = retrieval_queue.Pop();
-    CHECK(retrieval.IsValid());
+    THROW_CHECK(retrieval.IsValid());
 
     const auto& image_id = retrieval.Data().image_id;
     const auto& image_scores = retrieval.Data().image_scores;
@@ -186,14 +187,16 @@ class ExhaustiveFeatureMatcher : public Thread {
         database_(database_path),
         cache_(5 * options_.block_size, &database_),
         matcher_(matching_options, geometry_options, &database_, &cache_) {
-    CHECK(options.Check());
-    CHECK(matching_options.Check());
-    CHECK(geometry_options.Check());
+    THROW_CHECK(options.Check());
+    THROW_CHECK(matching_options.Check());
+    THROW_CHECK(geometry_options.Check());
   }
 
  private:
   void Run() override {
     PrintHeading1("Exhaustive feature matching");
+    Timer run_timer;
+    run_timer.Start();
 
     if (!matcher_.Setup()) {
       return;
@@ -221,7 +224,7 @@ class ExhaustiveFeatureMatcher : public Thread {
             std::min(image_ids.size(), start_idx2 + block_size) - 1;
 
         if (IsStopped()) {
-          GetTimer().PrintMinutes();
+          run_timer.PrintMinutes();
           return;
         }
 
@@ -255,7 +258,7 @@ class ExhaustiveFeatureMatcher : public Thread {
       }
     }
 
-    GetTimer().PrintMinutes();
+    run_timer.PrintMinutes();
   }
 
   const ExhaustiveMatchingOptions options_;
@@ -296,14 +299,16 @@ class SequentialFeatureMatcher : public Thread {
                         5 * options_.overlap),
                &database_),
         matcher_(matching_options, geometry_options, &database_, &cache_) {
-    CHECK(options.Check());
-    CHECK(matching_options.Check());
-    CHECK(geometry_options.Check());
+    THROW_CHECK(options.Check());
+    THROW_CHECK(matching_options.Check());
+    THROW_CHECK(geometry_options.Check());
   }
 
  private:
   void Run() override {
     PrintHeading1("Sequential feature matching");
+    Timer run_timer;
+    run_timer.Start();
 
     if (!matcher_.Setup()) {
       return;
@@ -318,7 +323,7 @@ class SequentialFeatureMatcher : public Thread {
       RunLoopDetection(ordered_image_ids);
     }
 
-    GetTimer().PrintMinutes();
+    run_timer.PrintMinutes();
   }
 
   std::vector<image_t> GetOrderedImageIds() const {
@@ -467,14 +472,16 @@ class VocabTreeFeatureMatcher : public Thread {
         database_(database_path),
         cache_(5 * options_.num_images, &database_),
         matcher_(matching_options, geometry_options, &database_, &cache_) {
-    CHECK(options.Check());
-    CHECK(matching_options.Check());
-    CHECK(geometry_options.Check());
+    THROW_CHECK(options.Check());
+    THROW_CHECK(matching_options.Check());
+    THROW_CHECK(geometry_options.Check());
   }
 
  private:
   void Run() override {
     PrintHeading1("Vocabulary tree feature matching");
+    Timer run_timer;
+    run_timer.Start();
 
     if (!matcher_.Setup()) {
       return;
@@ -501,7 +508,7 @@ class VocabTreeFeatureMatcher : public Thread {
 
       // Read the match list path.
       std::ifstream file(options_.match_list_path);
-      CHECK(file.is_open()) << options_.match_list_path;
+      THROW_CHECK_FILE_OPEN(file, options_.match_list_path);
       std::string line;
       while (std::getline(file, line)) {
         StringTrim(&line);
@@ -528,7 +535,7 @@ class VocabTreeFeatureMatcher : public Thread {
                              &visual_index);
 
     if (IsStopped()) {
-      GetTimer().PrintMinutes();
+      run_timer.PrintMinutes();
       return;
     }
 
@@ -545,7 +552,7 @@ class VocabTreeFeatureMatcher : public Thread {
                                        &visual_index,
                                        &matcher_);
 
-    GetTimer().PrintMinutes();
+    run_timer.PrintMinutes();
   }
 
   const VocabTreeMatchingOptions options_;
@@ -586,14 +593,16 @@ class SpatialFeatureMatcher : public Thread {
         database_(database_path),
         cache_(5 * options_.max_num_neighbors, &database_),
         matcher_(matching_options, geometry_options, &database_, &cache_) {
-    CHECK(options.Check());
-    CHECK(matching_options.Check());
-    CHECK(geometry_options.Check());
+    THROW_CHECK(options.Check());
+    THROW_CHECK(matching_options.Check());
+    THROW_CHECK(geometry_options.Check());
   }
 
  private:
   void Run() override {
     PrintHeading1("Spatial feature matching");
+    Timer run_timer;
+    run_timer.Start();
 
     if (!matcher_.Setup()) {
       return;
@@ -664,7 +673,7 @@ class SpatialFeatureMatcher : public Thread {
 
     if (num_locations == 0) {
       LOG(INFO) << "=> No images with location data.";
-      GetTimer().PrintMinutes();
+      run_timer.PrintMinutes();
       return;
     }
 
@@ -729,7 +738,7 @@ class SpatialFeatureMatcher : public Thread {
 
     for (size_t i = 0; i < num_locations; ++i) {
       if (IsStopped()) {
-        GetTimer().PrintMinutes();
+        run_timer.PrintMinutes();
         return;
       }
 
@@ -764,7 +773,7 @@ class SpatialFeatureMatcher : public Thread {
       PrintElapsedTime(timer);
     }
 
-    GetTimer().PrintMinutes();
+    run_timer.PrintMinutes();
   }
 
   const SpatialMatchingOptions options_;
@@ -804,14 +813,16 @@ class TransitiveFeatureMatcher : public Thread {
         database_(database_path),
         cache_(options_.batch_size, &database_),
         matcher_(matching_options, geometry_options, &database_, &cache_) {
-    CHECK(options.Check());
-    CHECK(matching_options.Check());
-    CHECK(geometry_options.Check());
+    THROW_CHECK(options.Check());
+    THROW_CHECK(matching_options.Check());
+    THROW_CHECK(geometry_options.Check());
   }
 
  private:
   void Run() override {
     PrintHeading1("Transitive feature matching");
+    Timer run_timer;
+    run_timer.Start();
 
     if (!matcher_.Setup()) {
       return;
@@ -826,7 +837,7 @@ class TransitiveFeatureMatcher : public Thread {
 
     for (int iteration = 0; iteration < options_.num_iterations; ++iteration) {
       if (IsStopped()) {
-        GetTimer().PrintMinutes();
+        run_timer.PrintMinutes();
         return;
       }
 
@@ -841,7 +852,7 @@ class TransitiveFeatureMatcher : public Thread {
       database_.ReadTwoViewGeometryNumInliers(&existing_image_pairs,
                                               &existing_num_inliers);
 
-      CHECK_EQ(existing_image_pairs.size(), existing_num_inliers.size());
+      THROW_CHECK_EQ(existing_image_pairs.size(), existing_num_inliers.size());
 
       std::unordered_map<image_t, std::vector<image_t>> adjacency;
       for (const auto& image_pair : existing_image_pairs) {
@@ -875,7 +886,7 @@ class TransitiveFeatureMatcher : public Thread {
                   timer.Restart();
 
                   if (IsStopped()) {
-                    GetTimer().PrintMinutes();
+                    run_timer.PrintMinutes();
                     return;
                   }
                 }
@@ -892,7 +903,7 @@ class TransitiveFeatureMatcher : public Thread {
       PrintElapsedTime(timer);
     }
 
-    GetTimer().PrintMinutes();
+    run_timer.PrintMinutes();
   }
 
   const TransitiveMatchingOptions options_;
@@ -932,14 +943,16 @@ class ImagePairsFeatureMatcher : public Thread {
         database_(database_path),
         cache_(options.block_size, &database_),
         matcher_(matching_options, geometry_options, &database_, &cache_) {
-    CHECK(options.Check());
-    CHECK(matching_options.Check());
-    CHECK(geometry_options.Check());
+    THROW_CHECK(options.Check());
+    THROW_CHECK(matching_options.Check());
+    THROW_CHECK(geometry_options.Check());
   }
 
  private:
   void Run() override {
     PrintHeading1("Custom feature matching");
+    Timer run_timer;
+    run_timer.Start();
 
     if (!matcher_.Setup()) {
       return;
@@ -959,7 +972,7 @@ class ImagePairsFeatureMatcher : public Thread {
     }
 
     std::ifstream file(options_.match_list_path);
-    CHECK(file.is_open()) << options_.match_list_path;
+    THROW_CHECK_FILE_OPEN(file, options_.match_list_path);
 
     std::string line;
     std::vector<std::pair<image_t, image_t>> image_pairs;
@@ -1011,7 +1024,7 @@ class ImagePairsFeatureMatcher : public Thread {
 
     for (size_t i = 0; i < image_pairs.size(); i += options_.block_size) {
       if (IsStopped()) {
-        GetTimer().PrintMinutes();
+        run_timer.PrintMinutes();
         return;
       }
 
@@ -1038,7 +1051,7 @@ class ImagePairsFeatureMatcher : public Thread {
       PrintElapsedTime(timer);
     }
 
-    GetTimer().PrintMinutes();
+    run_timer.PrintMinutes();
   }
 
   const ImagePairsMatchingOptions options_;
@@ -1077,9 +1090,9 @@ class FeaturePairsFeatureMatcher : public Thread {
         geometry_options_(geometry_options),
         database_(database_path),
         cache_(kCacheSize, &database_) {
-    CHECK(options.Check());
-    CHECK(matching_options.Check());
-    CHECK(geometry_options.Check());
+    THROW_CHECK(options.Check());
+    THROW_CHECK(matching_options.Check());
+    THROW_CHECK(geometry_options.Check());
   }
 
  private:
@@ -1087,6 +1100,8 @@ class FeaturePairsFeatureMatcher : public Thread {
 
   void Run() override {
     PrintHeading1("Importing matches");
+    Timer run_timer;
+    run_timer.Start();
 
     cache_.Setup();
 
@@ -1098,12 +1113,12 @@ class FeaturePairsFeatureMatcher : public Thread {
     }
 
     std::ifstream file(options_.match_list_path);
-    CHECK(file.is_open()) << options_.match_list_path;
+    THROW_CHECK_FILE_OPEN(file, options_.match_list_path);
 
     std::string line;
     while (std::getline(file, line)) {
       if (IsStopped()) {
-        GetTimer().PrintMinutes();
+        run_timer.PrintMinutes();
         return;
       }
 
@@ -1205,7 +1220,7 @@ class FeaturePairsFeatureMatcher : public Thread {
       }
     }
 
-    GetTimer().PrintMinutes();
+    run_timer.PrintMinutes();
   }
 
   const FeaturePairsMatchingOptions options_;
